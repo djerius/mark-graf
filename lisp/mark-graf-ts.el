@@ -392,12 +392,22 @@ Optional START and END limit the range."
   "Regex for ATX headings.")
 
 (defconst mark-graf-ts--emphasis-regex
-  "\\(?:^\\|[^\\*_]\\)\\(\\*\\([^\\*\n\r]+\\)\\*\\|_\\([^_\n\r]+\\)_\\)"
-  "Regex for emphasis (italic). Only matches within a single line.")
+  "\\(?:\\(?:^\\|[^\\*_]\\)\\(?1:\\*\\(?2:[^\\*\n\r]+\\)\\*\\)\\|\\(?:^\\|[^[:alnum:]\\*_]\\)\\(?1:_\\(?3:[^_\n\r]+\\)_\\)\\(?:$\\|[^[:alnum:]_]\\)\\)"
+  "Regex for emphasis (italic). Only matches within a single line.
+Group 1 is the whole emphasis, group 2 the `*' content, group 3 the `_'
+content. The two delimiters get separate alternatives because markdown
+allows intraword `*' (a*b*c is emphasis) but not intraword `_'
+(plain_no_code_x is literal), so the `_' branch additionally requires a
+non-alphanumeric on each side. That trailing boundary is consumed by the
+match, so callers must resume scanning from (match-end 1).")
 
 (defconst mark-graf-ts--strong-regex
-  "\\(?:^\\|[^\\*_]\\)\\(\\*\\*\\([^\\*\n\r]+\\)\\*\\*\\|__\\([^_\n\r]+\\)__\\)"
-  "Regex for strong (bold). Only matches within a single line.")
+  "\\(?:\\(?:^\\|[^\\*_]\\)\\(?1:\\*\\*\\(?2:[^\\*\n\r]+\\)\\*\\*\\)\\|\\(?:^\\|[^[:alnum:]\\*_]\\)\\(?1:__\\(?3:[^_\n\r]+\\)__\\)\\(?:$\\|[^[:alnum:]_]\\)\\)"
+  "Regex for strong (bold). Only matches within a single line.
+Group 1 is the whole emphasis, group 2 the `**' content, group 3 the `__'
+content. See `mark-graf-ts--emphasis-regex' for why the two delimiters
+need separate alternatives, and why callers must resume scanning from
+(match-end 1).")
 
 (defconst mark-graf-ts--code-span-regex
   "`\\([^`\n\r]+\\)`"
@@ -627,7 +637,11 @@ Handles Windows CRLF line endings with \\r?.")
                      :type 'strong
                      :start mstart
                      :end (min mend end))
-                    elements))))
+                    elements))
+            ;; The `__' branch consumes a trailing boundary character, so
+            ;; resume at the end of the emphasis itself -- otherwise an
+            ;; immediately following run (__a__ __b__) would be missed.
+            (goto-char mend)))
 
         (goto-char start)
         (while (and (< (point) end)
@@ -639,7 +653,9 @@ Handles Windows CRLF line endings with \\r?.")
                      :type 'emphasis
                      :start mstart
                      :end (min mend end))
-                    elements))))
+                    elements))
+            ;; See the strong pass above: rewind past the consumed boundary.
+            (goto-char mend)))
 
         (goto-char start)
         (while (and (< (point) end)
